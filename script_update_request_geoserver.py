@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import logging
 
+# Configuração básica de logging para exibir mensagens do SQLAlchemy
 logging.basicConfig()
 logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
@@ -36,24 +37,25 @@ field_info_update = "LastUpdate"  # Nome da coluna que será atualizada para reg
 field_where = "DatabaseName"  # Nome da coluna usada como critério de filtragem para identificar a base de dados
 value_field_where = "SICAR"  # Valor de filtragem para a coluna "field_where" (identifica a base de dados específica)
 
-#parametros da requisição WFS
+# Parâmetros da requisição WFS
 params = {
     "service": "WFS",
     "version": "1.0.0",
     "request": "GetFeature",
-    "typename": f"sicar:sicar_imoveis_es",
-    "pagingEnabled": "true",
+    "typename": f"sicar:sicar_imoveis_es",  # Nome do tipo de feature no GeoServer
+    "pagingEnabled": "true",  # Habilita paginação
     "preferCoordinatesForWfsT11": "false",
-    "outputFormat": "SHAPE-ZIP",
-    "sortBy": "cod_imovel",
-    "maxFeatures": "1000"
+    "outputFormat": "SHAPE-ZIP",  # Formato de saída como shapefile compactado
+    "sortBy": "cod_imovel",  # Ordena os resultados pelo campo "cod_imovel"
+    "maxFeatures": "1000"  # Número máximo de features por página
 }
 
+# Classe personalizada para adaptar a conexão HTTPS com suporte a TLSv1.2
 class TLSAdapter(HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
         # Define o contexto SSL com suporte a TLSv1.2
         context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        context.set_ciphers("AES256-GCM-SHA384")
+        context.set_ciphers("AES256-GCM-SHA384")  # Configura os cifradores suportados
         kwargs['ssl_context'] = context
         return super(TLSAdapter, self).init_poolmanager(*args, **kwargs)
 
@@ -67,24 +69,26 @@ def download_wfs_data(url, params, zip_files_dir, output_filename, extract_dir):
     if not os.path.exists(extract_dir):
         os.makedirs(extract_dir)
 
-    # Configuração de sessão
+    # Configuração de sessão com suporte a TLSv1.2
     session = requests.Session()
     session.mount('https://', TLSAdapter())
 
-    start_index = 0
-    total_features = 0
+    start_index = 0  # Índice inicial para paginação
+    total_features = 0  # Contador total de features baixadas
 
     while True:
-        # Atualiza o parâmetro startIndex
+        # Atualiza o parâmetro startIndex para a paginação
         params["startIndex"] = str(start_index)
 
         try:
+            # Faz a requisição HTTP ao GeoServer
             response = session.get(url, params=params, verify=False)
             response.raise_for_status()  # Levanta exceção para erros HTTP
 
+            # Define o nome do arquivo ZIP para salvar a página atual
             file_output = f"{zip_files_dir}/{output_filename}_{start_index}.zip"
 
-            # Salva os dados da página atual
+            # Salva os dados da página atual no arquivo ZIP
             with open(file_output, "wb") as file:
                 file.write(response.content)
             print(f"Página com dados de {start_index} salva como '{file_output}'.")
@@ -94,10 +98,10 @@ def download_wfs_data(url, params, zip_files_dir, output_filename, extract_dir):
             total_features += lines_count
             print(f"Arquivo {file_output} contém {lines_count} linhas.")
 
-            # Se a quantidade de dados extraídos for menor que maxFeatures, significa que é a última página
+            # Se a quantidade de dados extraídos for menor que maxFeatures, é a última página
             if lines_count < int(params["maxFeatures"]):
                 print("Todos os dados foram baixados.")
-                break  # Saímos do loop se a última página for retornada
+                break  # Sai do loop se a última página for retornada
 
             # Atualiza o start_index para a próxima página
             start_index += int(params["maxFeatures"])
@@ -120,7 +124,7 @@ def extract_shapefiles_and_count(zip_file, extract_dir, output_filename):
         zip_ref.extractall(zip_extract_dir)
         print(f"Extraído: {zip_file} para {zip_extract_dir}")
 
-        # Encontra os arquivos shapefile (.shp)
+        # Encontra os arquivos shapefile (.shp) dentro do ZIP
         shapefile = None
         for file in zip_ref.namelist():
             if file.endswith('.shp'):
@@ -128,6 +132,7 @@ def extract_shapefiles_and_count(zip_file, extract_dir, output_filename):
                 break
 
         if shapefile:
+            # Monta o caminho completo para o shapefile
             shapefile_path = os.path.join(zip_extract_dir, shapefile)
             # Usa GeoPandas para ler o shapefile e contar as linhas
             gdf = gpd.read_file(shapefile_path)
@@ -138,7 +143,7 @@ def extract_shapefiles_and_count(zip_file, extract_dir, output_filename):
 
 # Função para combinar shapefiles extraídos em um único diretório
 def combine_shapefiles(extract_dir, output_dir, output_shp_filename):
-    # Garante que o diretório de saída exite
+    # Garante que o diretório de saída exista
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -167,7 +172,7 @@ def combine_shapefiles(extract_dir, output_dir, output_shp_filename):
     else:
         print("Nenhum shapefile encontrado para combinar.")
 
-
+# Função para salvar o shapefile combinado no banco de dados PostgreSQL
 def save_shapefile_to_postgres(
         shapefile_path, db_uri, table_name, info_table_name, field_info_update, field_where, value_field_where):
     # Cria uma conexão com o banco de dados PostgreSQL
@@ -200,7 +205,7 @@ def save_shapefile_to_postgres(
                 WHERE "{field_where}" ilike '{value_field_where}';
                 """
             )
-            connection.execute(update_info_table, )
+            connection.execute(update_info_table)
             connection.commit()
             print(f"Tabela '{info_table_name}' atualizada com sucesso.")
 
@@ -209,6 +214,7 @@ def save_shapefile_to_postgres(
     except Exception as e:
         print(f"Erro inesperado: {e}")
 
-download_wfs_data(geoserver_url, params, zip_files_dir, output_filename, extract_dir)
+# Execução do script
+download_wfs_data(geoserver_url, params, zip_files_dir, output_filename, extract_dir)  # Baixa os dados
 combined_shapefile = combine_shapefiles(extract_dir, output_dir, output_shp_filename)  # Combina os shapefiles
-save_shapefile_to_postgres(shapefile_path, db_uri, table_name, info_table_name, field_info_update, field_where, value_field_where)
+save_shapefile_to_postgres(shapefile_path, db_uri, table_name, info_table_name, field_info_update, field_where, value_field_where)  # Salva no banco de dados
