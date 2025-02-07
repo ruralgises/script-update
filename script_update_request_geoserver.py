@@ -71,7 +71,7 @@ def download_wfs_data(url, params, zip_files_dir, output_filename, extract_dir):
 
     # Configuração de sessão com suporte a TLSv1.2
     session = requests.Session()
-    session.mount('https://', TLSAdapter())
+    # session.mount('https://', TLSAdapter())
 
     start_index = 0  # Índice inicial para paginação
     total_features = 0  # Contador total de features baixadas
